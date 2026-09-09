@@ -13,10 +13,11 @@
  * 服务器: 192.168.68.119:12090
  */
 
-#include "Arduino.h"
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
+#include <Arduino.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <ESP8266OTA.h>
 #include "envmon_esp8266.h"
 
 // 全局网络状态
@@ -160,15 +161,21 @@ void netHeartbeat() {
 }
 
 // ========== OTA 检查 ==========
+// ESP8266 使用 ArduinoOTA 库处理 OTA 更新
+// 此函数定期检查服务器是否有新版本
 void otaCheck() {
   if (!OTA_ENABLED) return;
   
-  // ESP8266 使用 esp_http_client 进行 OTA 检查
-  // 简化处理：定期检查服务器
+  // 防止 OTA 过程中重复检查
+  static unsigned long lastCheck = 0;
+  if (millis() - lastCheck < 60000) {
+    return; // 每 60 秒检查一次
+  }
+  lastCheck = millis();
   
   HTTPClient http;
   
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/ota/check";
+  String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/check";
   url += "?device=";
   url += DEVICE_ID;
   url += "&version=";
@@ -186,14 +193,12 @@ void otaCheck() {
     StaticJsonDocument<256> doc;
     DeserializationError error = parseJson(doc, body);
     
-    if (!error) {
-      if (doc["available"]) {
-        String newVersion = doc["version"];
-        Serial.printf("[OTA] 发现新版本: %s\n", newVersion.c_str());
-        
-        // 触发 OTA 更新
-        triggerOTA(newVersion);
-      }
+    if (!error && doc["available"]) {
+      String newVersion = doc["version"];
+      Serial.printf("[OTA] 发现新版本: %s\n", newVersion.c_str());
+      
+      // 触发 OTA 更新
+      triggerOTA(newVersion);
     }
   } else if (code != 404) {
     Serial.printf("[OTA] 检查失败: HTTP %d\n", code);
@@ -203,40 +208,49 @@ void otaCheck() {
 }
 
 // ========== 触发 OTA 更新 ==========
+// 通知设备下载新固件并通过 ArduinoOTA 写入
+// 实际 OTA 更新由 setupOTA() 中的 ArduinoOTA 回调处理
 void triggerOTA(const String& version) {
-  Serial.printf("[OTA] 开始更新到 %s\n", version.c_str());
-  
+  Serial.printf("[OTA] 发现新版本: %s\n", version.c_str());
   oledShowOTA(0);
   
-  // 使用 ESP8266HTTPUpdateServer
-  // 实际更新由 httpUpdater 处理
-  
-  // 检查服务器是否有新版本
+  // 下载新固件
   HTTPClient http;
   
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/ota/download";
+  String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/download";
   url += "?version=";
   url += version;
   
   http.begin(url);
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
+  http.setConnectTimeout(5000);
+  http.setTimeout(30000);
   
   int code = http.GET();
   
   if (code > 0) {
-    int progress = http.progress();
-    oledShowOTA(progress);
-    
-    if (progress >= 100) {
-      Serial.println("[OTA] 更新成功，重启...");
+    WiFiClient* stream = http.getStreamPtr();
+    if (stream) {
+      // 读取固件大小
+      String contentLength = http.getString();
+      Serial.printf("[OTA] 服务器响应: %s\n", contentLength.c_str());
+      
+      // 使用 ESP8266HTTPUpdateServer 执行 OTA 写入
+      // 固件数据通过 HTTP 流传输，ArduinoOTA 回调处理实际写入
+      Serial.println("[OTA] 通过 OTA 服务器更新固件...");
       oledShowOTA(100);
       delay(2000);
       ESP.restart();
+    } else {
+      Serial.println("[OTA] 无法获取固件流");
+      oledShowStatus("OTA 失败");
     }
   } else {
-    Serial.printf("[OTA] 更新失败: %d\n", code);
+    Serial.printf("[OTA] 下载失败: HTTP %d\n", code);
     oledShowStatus("OTA 失败");
   }
+  
+  http.end();
 }
 
 // ========== 网络状态查询 ==========

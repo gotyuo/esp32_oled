@@ -53,22 +53,29 @@
 // =============================================================================
 
 // 设备唯一标识: 上报时作为 device_id 提交, 平台据此注册/绑定设备
-#define DEVICE_ID       "ESP32-ENV-001"
+// 命名规范: esp32-{序号}, 例: esp32-001, esp32-002
+#define DEVICE_ID       "esp32-001"
 
 // 固件版本字符串: 平台通过此字段判断是否需要触发 OTA
 #define FIRMWARE_VERSION "2.0.0"
+#define FIRMWARE_BUILD   "2026-09-09"
 
-// WiFi 凭据
-#define WIFI_SSID       "ENV_LAB_5G"
-#define WIFI_PASSWORD   "envmon123456"
+// WiFi 凭据 (修改为你的实际 WiFi)
+#define WIFI_SSID       "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
 
 // 平台服务器 (HTTP, 非 MQTT)
-#define MQTT_SERVER     "192.168.1.100"   // 平台服务器 IP / 域名
-#define MQTT_PORT       8080              // 平台服务端口
+// ICU 监护平台地址, 见 docs/PROTOCOL.md
+#define SERVER_HOST     "192.168.68.119"  // 平台服务器 IP
+#define SERVER_PORT     12090             // 平台服务端口
 
-// 鉴权 Token: 以 "Authorization: Bearer <TOKEN>" 形式附带在请求头中
+// 兼容旧代码引用: 保留 MQTT_* 作为别名
+#define MQTT_SERVER     SERVER_HOST
+#define MQTT_PORT       SERVER_PORT
+
+// 鉴权 Token: 从平台 /api/login 获取后填入
 // 生产环境请通过 OTA/配置系统下发, 切勿硬编码长期有效凭据到代码仓库
-#define AUTH_TOKEN      "envmon-dev-token-CHANGE_ME"
+#define AUTH_TOKEN      "REPLACE_WITH_…_TOKEN"
 
 // =============================================================================
 // 引脚分配 (Pin Map) —— 与 docs/PINS.md 保持一致
@@ -252,24 +259,32 @@ void oledShowWifiStatus(bool connected, int reconnectCount);
 // --- sensors.cpp ---
 SensorReading readSensors();
 bool calibrateSensors();
+bool sensorsIsCalibrated();
 
 // --- audio.cpp ---
 bool audioInit();
+void audioUpdate();                 // 主循环周期调用, 处理报警/测试音相位
 void audioAlarm(bool enable);
 void audioPlayTestTone();
 void audioMute();
 void audioUnmute();
 bool audioIsMuted();
+void audioShutdown();               // OTA 前释放音频资源 (可选)
 
 // --- platform_client.cpp ---
 bool platformRegister();
 bool platformReport(const SensorReading& r);
 bool platformCheckOta(int& progressPct);
+size_t platformCacheSize();   // 离线缓存条数 (诊断)
+void platformCacheClear();    // 强制清空离线缓存
 
 // --- ekg_stub.cpp ---
 bool ekgInitialize();
 float ekgRead();
 bool ekgParse(float* amplitude);
+float ekgHeartRateBpm();   // 当前心率 (bpm), stub 返回模拟值
+bool ekgIsSimulated();     // 是否模拟模式
+bool ekgIsInitialized();   // 初始化状态
 
 // =============================================================================
 // 辅助函数原型
