@@ -32,6 +32,7 @@ const char* DEVICE_NAME     = "ESP8266 ICU Monitor";
 
 // DHT11 温湿度 (注意: DHT11 不是 DHT22)
 #define TEMP_PIN            3    // GPIO3 (注意与 ESP32 的 4 不同)
+#define DHT_TYPE            DHT11
 
 // ESP8266 没有 BMP280 (内存限制)
 // ESP8266 没有麦克风
@@ -52,6 +53,8 @@ const char* DEVICE_NAME     = "ESP8266 ICU Monitor";
 
 // ========== OTA 配置 ==========
 #define OTA_ENABLED         true
+#define OTA_PASSWORD        "admin123"
+#define OTA_PORT            8266
 
 // ========== 状态 ==========
 enum State {

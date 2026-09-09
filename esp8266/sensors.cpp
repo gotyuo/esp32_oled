@@ -79,9 +79,6 @@ void sensorsRead(SensorData& data) {
   data.hum_pct = h + humOffset;
   data.temp_c = t + tempOffset;
   
-  // 气压传感器不可用 (ESP8266 无 BMP280)
-  data.pres_hpa = 0.0;
-  
   data.timestamp_ms = millis();
   data.valid = true;
 }

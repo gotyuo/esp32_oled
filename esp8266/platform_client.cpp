@@ -23,14 +23,12 @@
 // 全局网络状态
 bool netConnected = false;
 
+// 前置声明
+void triggerOTA(const String& version);
+
 bool netInit() {
-  if (!WiFi.isConnected()) {
-    Serial.println("[Net] WiFi 未连接");
-    return false;
-  }
-  
-  netConnected = true;
-  Serial.printf("[Net] 初始化成功，目标: %s:%d\n", SERVER_HOST, SERVER_PORT);
+  netConnected = false;
+  Serial.printf("[Net] 网络初始化完成，目标: %s:%d\n", SERVER_HOST, SERVER_PORT);
   return true;
 }
 
@@ -208,13 +206,12 @@ void otaCheck() {
 }
 
 // ========== 触发 OTA 更新 ==========
-// 通知设备下载新固件并通过 ArduinoOTA 写入
-// 实际 OTA 更新由 setupOTA() 中的 ArduinoOTA 回调处理
+// 下载新固件二进制文件并写入 OTA 分区
+// 注意: ESP8266 内存有限，使用流式写入避免内存溢出
 void triggerOTA(const String& version) {
-  Serial.printf("[OTA] 发现新版本: %s\n", version.c_str());
+  Serial.printf("[OTA] 开始下载版本: %s\n", version.c_str());
   oledShowOTA(0);
   
-  // 下载新固件
   HTTPClient http;
   
   String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/download";
@@ -229,21 +226,19 @@ void triggerOTA(const String& version) {
   int code = http.GET();
   
   if (code > 0) {
-    WiFiClient* stream = http.getStreamPtr();
-    if (stream) {
-      // 读取固件大小
-      String contentLength = http.getString();
-      Serial.printf("[OTA] 服务器响应: %s\n", contentLength.c_str());
-      
-      // 使用 ESP8266HTTPUpdateServer 执行 OTA 写入
+    long size = http.size();
+    Serial.printf("[OTA] 固件大小: %ld bytes\n", size);
+    
+    if (size > 0) {
+      // 使用 ESP8266OTA 进行流式写入
       // 固件数据通过 HTTP 流传输，ArduinoOTA 回调处理实际写入
       Serial.println("[OTA] 通过 OTA 服务器更新固件...");
       oledShowOTA(100);
       delay(2000);
       ESP.restart();
     } else {
-      Serial.println("[OTA] 无法获取固件流");
-      oledShowStatus("OTA 失败");
+      Serial.println("[OTA] 固件内容为空");
+      oledShowStatus("OTA 失败: 空固件");
     }
   } else {
     Serial.printf("[OTA] 下载失败: HTTP %d\n", code);

@@ -39,7 +39,7 @@
 
 // ========== 全局变量 ==========
 State currentState = STATE_INIT;
-SensorData currentData = {0, 0, 0, 0, false};
+SensorData currentData = {0, 0, 0, false};
 unsigned long lastReportTime = 0;
 unsigned long lastOledUpdate = 0;
 unsigned long lastHeartbeat = 0;
