@@ -130,19 +130,25 @@ bool netReport(const SensorData& data) {
 }
 
 // ========== 心跳 ==========
+// 平台无 /api/heartbeat 端点, 心跳数据通过 /api/ingest 上报
+// 心跳不携带传感器数据, 仅上报设备状态供平台更新 last_seen
 void netHeartbeat() {
+  if (!WiFi.isConnected()) return;
+  
   HTTPClient http;
   
-  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/heartbeat";
+  String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + INGEST_PATH;
   
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
   
+  // 心跳 payload: 仅 device_id + timestamp, 无传感器数据
+  // 平台 ingest 要求至少一个测量值, 使用占位值
   StaticJsonDocument<128> doc;
   doc["device_id"] = DEVICE_ID;
+  doc["temp_c"] = -999.0;  // 占位值, 平台侧应忽略
   doc["timestamp"] = millis();
-  doc["status"] = WiFi.status() == WL_CONNECTED ? "online" : "offline";
   
   String payload;
   serializeJson(doc, payload);
@@ -159,8 +165,8 @@ void netHeartbeat() {
 }
 
 // ========== OTA 检查 ==========
-// ESP8266 使用 ArduinoOTA 库处理 OTA 更新
-// 此函数定期检查服务器是否有新版本
+// 平台无 /api/ota/check 端点, 改用 GET /api/ota/list 获取固件列表
+// 然后对比版本号判断是否需要升级
 void otaCheck() {
   if (!OTA_ENABLED) return;
   
@@ -173,11 +179,7 @@ void otaCheck() {
   
   HTTPClient http;
   
-  String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/check";
-  url += "?device=";
-  url += DEVICE_ID;
-  url += "&version=";
-  url += FIRMWARE_VERSION;
+  String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + OTA_LIST_PATH;
   
   http.begin(url);
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
@@ -187,16 +189,24 @@ void otaCheck() {
   if (code == 200) {
     String body = http.getString();
     
-    // 解析 OTA 信息
-    StaticJsonDocument<256> doc;
+    // 解析固件列表
+    StaticJsonDocument<512> doc;
     DeserializationError error = parseJson(doc, body);
     
-    if (!error && doc["available"]) {
-      String newVersion = doc["version"];
-      Serial.printf("[OTA] 发现新版本: %s\n", newVersion.c_str());
-      
-      // 触发 OTA 更新
-      triggerOTA(newVersion);
+    if (!error) {
+      JsonArray images = doc["images"];
+      if (images != nullptr && images.size() > 0) {
+        // 取最后一个 (假设按版本排序)
+        JsonObject lastImg = images[images.size() - 1];
+        const char* newVer = lastImg["version"];
+        
+        if (newVer && strcmp(newVer, FIRMWARE_VERSION) > 0) {
+          Serial.printf("[OTA] 发现新版本: %s\n", newVer);
+          
+          // 触发 OTA 更新
+          triggerOTA(newVer);
+        }
+      }
     }
   } else if (code != 404) {
     Serial.printf("[OTA] 检查失败: HTTP %d\n", code);
@@ -206,46 +216,48 @@ void otaCheck() {
 }
 
 // ========== 触发 OTA 更新 ==========
-// 下载新固件二进制文件并写入 OTA 分区
-// 注意: ESP8266 内存有限，使用流式写入避免内存溢出
+// 平台无 /api/ota/download 端点, 使用 /api/ota/push/{device_id} 触发 OTA
+// 实际 OTA 下载由 ArduinoOTA 回调处理
 void triggerOTA(const String& version) {
-  Serial.printf("[OTA] 开始下载版本: %s\n", version.c_str());
+  Serial.printf("[OTA] 请求平台推送版本: %s\n", version.c_str());
   oledShowOTA(0);
   
   HTTPClient http;
   
-  String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/download";
-  url += "?version=";
-  url += version;
+  // 使用 /api/ota/push/{device_id} 端点
+  String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/push/";
+  url += DEVICE_ID;
   
   http.begin(url);
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
-  http.setConnectTimeout(5000);
-  http.setTimeout(30000);
+  http.addHeader("Content-Type", "application/json");
   
-  int code = http.GET();
+  // 请求体: 指定目标版本
+  StaticJsonDocument<128> doc;
+  doc["target_version"] = version;
   
-  if (code > 0) {
-    long size = http.size();
-    Serial.printf("[OTA] 固件大小: %ld bytes\n", size);
+  String payload;
+  serializeJson(doc, payload);
+  
+  int code = http.POST(payload);
+  http.end();
+  
+  if (code == 200) {
+    Serial.println("[OTA] 已请求 OTA 推送, 等待下载...");
+    oledShowOTA(50);
     
-    if (size > 0) {
-      // 使用 ESP8266OTA 进行流式写入
-      // 固件数据通过 HTTP 流传输，ArduinoOTA 回调处理实际写入
-      Serial.println("[OTA] 通过 OTA 服务器更新固件...");
-      oledShowOTA(100);
-      delay(2000);
-      ESP.restart();
-    } else {
-      Serial.println("[OTA] 固件内容为空");
-      oledShowStatus("OTA 失败: 空固件");
-    }
+    // ArduinoOTA 回调会处理实际下载和写入
+    // 这里等待一段时间后重启
+    delay(5000);
+    
+    Serial.println("[OTA] 重启设备以应用更新");
+    oledShowOTA(100);
+    delay(2000);
+    ESP.restart();
   } else {
-    Serial.printf("[OTA] 下载失败: HTTP %d\n", code);
+    Serial.printf("[OTA] 触发失败: HTTP %d\n", code);
     oledShowStatus("OTA 失败");
   }
-  
-  http.end();
 }
 
 // ========== 网络状态查询 ==========
