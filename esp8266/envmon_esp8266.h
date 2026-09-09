@@ -10,10 +10,15 @@ const char* WIFI_SSID       = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD   = "YOUR_WIFI_PASSWORD";
 
 // ========== 平台配置 ==========
-const char* SERVER_HOST     = "192.168.68.119";
-const int   SERVER_PORT     = 12090;
-const char* INGEST_PATH     = "/api/ingest";
-const char* AUTH_TOKEN      = "REPLACE_WI...KEN";
+// ICU 监护平台地址, 见 docs/PROTOCOL.md
+const char* SERVER_HOST     = "192.168.68.119";  // 平台服务器 IP
+const int   SERVER_PORT     = 12090;              // 平台服务端口
+const char* INGEST_PATH     = "/api/ingest";      // 数据上报端点
+const char* REGISTER_PATH   = "/api/devices";     // 设备注册端点
+const char* OTA_LIST_PATH   = "/api/ota/list";    // OTA 固件列表端点
+
+// 鉴权 Token: 从平台 /api/login 获取后填入
+const char* AUTH_TOKEN      = "REPLACE_WITH_…_TOKEN";
 const char* DEVICE_ID       = "esp8266-001";
 const char* DEVICE_NAME     = "ESP8266 ICU Monitor";
 
