@@ -1,0 +1,38 @@
+# 构建文件
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.uf2
+
+# Arduino IDE 生成的文件
+build/
+build_output.txt
+*.build.log
+
+# PlatformIO
+.pio/
+.pioenvs
+.piolibdeps
+
+# IDE 文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swo2
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.log
+*.bak
+*.orig
+
+# 测试报告
+TEST_REPORT_*.md
