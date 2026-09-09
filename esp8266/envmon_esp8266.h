@@ -6,21 +6,21 @@
 #define FIRMWARE_BUILD       "2026-09-09"
 
 // ========== WiFi 配置 ==========
-const char* WIFI_SSID       = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD   = "YOUR_WIFI_PASSWORD";
+#define WIFI_SSID       "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
 
 // ========== 平台配置 ==========
 // ICU 监护平台地址, 见 docs/PROTOCOL.md
-const char* SERVER_HOST     = "192.168.68.119";  // 平台服务器 IP
-const int   SERVER_PORT     = 12090;              // 平台服务端口
-const char* INGEST_PATH     = "/api/ingest";      // 数据上报端点
-const char* REGISTER_PATH   = "/api/devices";     // 设备注册端点
-const char* OTA_LIST_PATH   = "/api/ota/list";    // OTA 固件列表端点
+#define SERVER_HOST     "192.168.68.119"    // 平台服务器 IP
+#define SERVER_PORT     12090               // 平台服务端口
+#define INGEST_PATH     "/api/ingest"       // 数据上报端点
+#define REGISTER_PATH   "/api/devices"      // 设备注册端点
+#define OTA_LIST_PATH   "/api/ota/list"     // OTA 固件列表端点
 
 // 鉴权 Token: 从平台 /api/login 获取后填入
-const char* AUTH_TOKEN      = "REPLACE_WITH_…_TOKEN";
-const char* DEVICE_ID       = "esp8266-001";
-const char* DEVICE_NAME     = "ESP8266 ICU Monitor";
+#define AUTH_TOKEN      "REPLACE_WITH_…OKEN"
+#define DEVICE_ID       "esp8266-001"
+#define DEVICE_NAME     "ESP8266 ICU Monitor"
 
 // ========== 引脚分配 (与 ESP32 不同!) ==========
 // OLED (I2C) - ESP8266 默认 I2C 引脚
