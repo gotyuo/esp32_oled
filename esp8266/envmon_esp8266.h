@@ -2,8 +2,8 @@
 #define ENVMON_ESP8266_H
 
 // ========== 版本号 ==========
-#define FIRMWARE_VERSION     "2.0.0"
-#define FIRMWARE_BUILD       "2026-09-09"
+#define FIRMWARE_VERSION     "2.1.0"
+#define FIRMWARE_BUILD       "2026-09-20"
 
 // ========== WiFi 配置 ==========
 #define WIFI_SSID       "YOUR_WIFI_SSID"
@@ -23,16 +23,23 @@
 #define DEVICE_NAME     "ESP8266 ICU Monitor"
 
 // ========== 引脚分配 (与 ESP32 不同!) ==========
-// OLED (SPI) - ESP8266 默认 SPI 引脚
+// OLED (SSD1315, 硬件 SPI) - ESP8266 默认 SPI 引脚
+//   CS=GPIO15, MOSI=GPIO13, SCK=GPIO14 (硬件固定)
+//   DC=GPIO4 (D2) — 注: 原方案 GPIO5 与 MAX30102 SCL 冲突, 故改用 GPIO4
 #define OLED_CS_PIN         15   // GPIO15 (D15)
-#define OLED_DC_PIN         5    // GPIO5  (D5)
+#define OLED_DC_PIN         4    // GPIO4  (D2) — v2.1.0 改 (原 5)
 #define OLED_WIDTH          128
 #define OLED_HEIGHT         64
 #define OLED_RESET_PIN      -1
 
-// DHT11 温湿度 (注意: DHT11 不是 DHT22)
+// DHT11 温湿度
 #define TEMP_PIN            12   // GPIO12 (D6)
 #define DHT_TYPE            DHT11
+
+// MAX30102 血氧/心率 (软件 I2C, v2.1.0 新增)
+// 避开 ESP8266 硬件 SPI 的 GPIO13/14/15 和 OLED 的 GPIO5
+#define MAX30102_SDA_PIN      2    // GPIO2 (D1)
+#define MAX30102_SCL_PIN      1    // GPIO1 (D10)
 
 // 有源蜂鸣器 / 喇叭驱动 (ESP8266 音频输出)
 // 默认 GPIO16 (NodeMCU D0): 远离 GPIO0/GPIO2 启动引脚, 避免启动异常。
@@ -85,8 +92,13 @@ enum State {
 struct SensorData {
   float temp_c;
   float hum_pct;
+  float spo2;        // 血氧 (%) — MAX30102, v2.1.0 新增
+  float heart_rate;  // 心率 (bpm) — MAX30102, v2.1.0 新增
+  float bp_systolic; // 收缩压 (mmHg) — 血压估算, v2.2.0 启用
+  float bp_diastolic;// 舒张压 (mmHg) — 血压估算, v2.2.0 启用
   uint32_t timestamp_ms;
-  bool valid;
+  bool valid;        // 温湿度是否有效
+  bool vital_valid;  // 生命体征 (SpO2/HR) 是否有效
 };
 
 // ========== 全局状态 ==========
@@ -127,5 +139,12 @@ void audioStartError();
 void audioSetAlarm(bool active);
 bool audioAlarmActive();
 bool audioBusy();
+
+// MAX30102 血氧/心率驱动 (v2.1.0 新增)
+bool max30102Init();
+void max30102Tick();
+void max30102GetResult(float* spo2, float* hr, bool* valid);
+bool max30102IsInitialized();
+int32_t max30102GetBufferIndex();
 
 #endif // ENVMON_ESP8266_H

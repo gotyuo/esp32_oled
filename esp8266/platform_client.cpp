@@ -20,6 +20,7 @@
 #include <ESP8266HTTPUpdateServer.h>
 #include <ArduinoOTA.h>
 #include "envmon_esp8266.h"
+#include "max30102_config.h"
 
 // 全局网络状态
 bool netConnected = false;
@@ -75,58 +76,72 @@ bool netRegister() {
 
 // ========== 数据上报 ==========
 bool netReport(const SensorData& data) {
-  if (!data.valid) {
+  if (!data.valid && !data.vital_valid) {
     Serial.println("[Report] 数据无效，跳过");
     return false;
   }
-  
+
   HTTPClient http;
   WiFiClient client;
-  
+
   String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + INGEST_PATH;
-  
+
   http.begin(client, url);
   http.setTimeout(5000);
-  
+
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
-  
+
   // 构建 JSON payload
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<512> doc;
   doc["device_id"] = DEVICE_ID;
-  
-  // 传感器数据 (ESP8266 只有温湿度)
-  if (!isnan(data.temp_c)) {
+
+  // 温湿度
+  if (data.valid && !isnan(data.temp_c)) {
     doc["temp_c"] = data.temp_c;
   }
-  if (!isnan(data.hum_pct)) {
+  if (data.valid && !isnan(data.hum_pct)) {
     doc["hum_pct"] = data.hum_pct;
   }
-  
+
+  // 生命体征 (MAX30102, v2.1.0 新增)
+  if (data.vital_valid && data.spo2 > 0) {
+    doc["spo2_pct"] = data.spo2;
+  }
+  if (data.vital_valid && data.heart_rate > 0) {
+    doc["heart_rate"] = data.heart_rate;
+  }
+
+  // 血压估算 (v2.2.0 启用)
+  if (BP_ESTIMATE_ENABLED && data.vital_valid && data.bp_systolic > 0) {
+    doc["bp_systolic"] = data.bp_systolic;
+    doc["bp_diastolic"] = data.bp_diastolic;
+  }
+
   // 时间戳
   doc["timestamp"] = millis();
-  
+
   String payload;
   serializeJson(doc, payload);
-  
+
   // 发送
   int code = http.POST(payload);
-  
+
   if (code == 200) {
     Serial.printf("[Report] 上报成功: %s\n", payload.c_str());
     http.end();
     return true;
   }
-  
-  Serial.printf("[Report] 上报失败: HTTP %d %s\n", 
+
+  Serial.printf("[Report] 上报失败: HTTP %d %s\n",
                 code, http.errorToString(code).c_str());
-  
+
   if (code == 401) {
     Serial.println("[Report] 认证失败，检查 token");
   } else if (code == 404) {
     Serial.println("[Report] 端点不存在，检查服务器配置");
   }
-  
+
   http.end();
   return false;
 }

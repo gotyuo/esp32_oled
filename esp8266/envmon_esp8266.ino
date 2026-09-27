@@ -38,10 +38,11 @@
 #include <ESP8266Audio.h>
 
 #include "envmon_esp8266.h"
+#include "max30102_config.h"
 
 // ========== 全局变量 ==========
 State currentState = STATE_INIT;
-SensorData currentData = {0, 0, 0, false};
+SensorData currentData = {0, 0, 0, 0, 0, 0, 0, false, false};
 unsigned long lastReportTime = 0;
 unsigned long lastOledUpdate = 0;
 unsigned long lastHeartbeat = 0;
@@ -166,6 +167,7 @@ void checkAlarm(const SensorData& data) {
 // ========== 主循环 ==========
 void loop() {
   audioTick();
+  max30102Tick();  // v2.1.0 新增: 非阻塞采样
 
   // WiFi 断线重连
   if (WiFi.status() != WL_CONNECTED) {
@@ -241,6 +243,7 @@ void setup() {
   audioStartBoot();
   sensorsCalibrate();
   sensorsInit();
+  max30102Init();  // v2.1.0 新增: MAX30102 血氧/心率
   netInit();
   
   // WiFi 连接

@@ -50,33 +50,46 @@ static void clearScreen() {
 void oledUpdate(const SensorData& data) {
   clearScreen();
 
+  // 标题
   u8g2.setFont(u8g2_font_ncenB08_tr);
   u8g2.drawStr(0, 10, "EnvMon v");
   u8g2.drawStr(48, 10, FIRMWARE_VERSION);
   u8g2.drawHLine(0, 14, OLED_WIDTH);
 
+  // 第一行: WiFi + 设备 ID
   u8g2.drawStr(0, 26, "WiFi: ");
   u8g2.drawStr(32, 26, netConnected ? "OK" : "NO");
+  u8g2.drawStr(70, 26, "ID:");
+  u8g2.drawStr(90, 26, DEVICE_ID);
 
+  // 中间: SpO2 / HR (大字)
   u8g2.setFont(u8g2_font_ncenB18_tr);
   char tmp[8];
-  snprintf(tmp, sizeof(tmp), "%d", (int)data.temp_c);
-  u8g2.drawStr(0, 42, tmp);
-  u8g2.setFont(u8g2_font_ncenB08_tr);
-  u8g2.drawStr(28, 42, " C");
+  if (data.vital_valid) {
+    // 左: SpO2
+    snprintf(tmp, sizeof(tmp), "%d", (int)data.spo2);
+    u8g2.drawStr(0, 42, tmp);
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(30, 42, "%SpO2");
 
-  u8g2.setFont(u8g2_font_ncenB18_tr);
-  snprintf(tmp, sizeof(tmp), "%d", (int)data.hum_pct);
+    // 右: HR
+    snprintf(tmp, sizeof(tmp), "%d", (int)data.heart_rate);
+    u8g2.setFont(u8g2_font_ncenB18_tr);
+    u8g2.drawStr(70, 42, tmp);
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(100, 42, "bpm");
+  } else {
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(0, 42, "SpO2: --");
+    u8g2.drawStr(50, 42, "HR: --");
+  }
+
+  // 底行: 温湿度
+  u8g2.setFont(u8g2_font_ncenB08_tr);
+  snprintf(tmp, sizeof(tmp), "%.0fC %.0f%%", data.temp_c, data.hum_pct);
   u8g2.drawStr(0, 58, tmp);
-  u8g2.setFont(u8g2_font_ncenB08_tr);
-  u8g2.drawStr(28, 58, " %");
-
-  u8g2.drawStr(80, 26, "ID: ");
-  u8g2.drawStr(96, 26, DEVICE_ID);
-
-  u8g2.drawStr(0, 58, "T+");
-  snprintf(tmp, sizeof(tmp), "%u", data.timestamp_ms);
-  u8g2.drawStr(16, 58, tmp);
+  snprintf(tmp, sizeof(tmp), "T+%lu", (unsigned long)data.timestamp_ms);
+  u8g2.drawStr(70, 58, tmp);
 
   u8g2.sendBuffer();
 }

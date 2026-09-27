@@ -67,28 +67,36 @@ void sensorsCalibrate() {
 
 // ========== 读取传感器 ==========
 void sensorsRead(SensorData& data) {
+  // 先重置, 让无效字段保持 0
+  data.valid = false;
+  data.vital_valid = false;
+
   // DHT11 最低采样频率 0.5Hz (每 2 秒一次)
   static unsigned long lastReadTime = 0;
 
-  if (millis() - lastReadTime < 2000) {
-    data.valid = false;
-    return;
+  if (millis() - lastReadTime >= 2000) {
+    lastReadTime = millis();
+
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    if (!isNanValue(h) && !isNanValue(t)) {
+      data.hum_pct = h + humOffset;
+      data.temp_c = t + tempOffset;
+      data.timestamp_ms = millis();
+      data.valid = true;
+    }
   }
 
-  lastReadTime = millis();
-
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
-
-  if (isNanValue(h) || isNanValue(t)) {
-    data.valid = false;
-    return;
+  // MAX30102 血氧/心率 (v2.1.0 新增)
+  if (max30102IsInitialized()) {
+    float spo2, hr;
+    bool vital_ok;
+    max30102GetResult(&spo2, &hr, &vital_ok);
+    if (vital_ok) {
+      data.spo2 = spo2;
+      data.heart_rate = hr;
+      data.vital_valid = true;
+    }
   }
-
-  // 应用校准偏移
-  data.hum_pct = h + humOffset;
-  data.temp_c = t + tempOffset;
-
-  data.timestamp_ms = millis();
-  data.valid = true;
 }
