@@ -84,12 +84,16 @@ void oledUpdate(const SensorData& data) {
     u8g2.drawStr(50, 42, "HR: --");
   }
 
-  // 底行: 温湿度
+  // 底行: 温湿度 + 血压估算
   u8g2.setFont(u8g2_font_ncenB08_tr);
-  snprintf(tmp, sizeof(tmp), "%.0fC %.0f%%", data.temp_c, data.hum_pct);
+  snprintf(tmp, sizeof(tmp), "T=%.0fC H=%.0f%%", data.temp_c, data.hum_pct);
   u8g2.drawStr(0, 58, tmp);
-  snprintf(tmp, sizeof(tmp), "T+%lu", (unsigned long)data.timestamp_ms);
-  u8g2.drawStr(70, 58, tmp);
+
+  // 血压显示 (仅 valid 时显示)
+  if (data.bp_systolic > 0 && data.bp_diastolic > 0) {
+    snprintf(tmp, sizeof(tmp), "%.0f/%.0f", data.bp_systolic, data.bp_diastolic);
+    u8g2.drawStr(80, 58, tmp);
+  }
 
   u8g2.sendBuffer();
 }

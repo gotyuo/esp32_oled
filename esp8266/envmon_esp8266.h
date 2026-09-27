@@ -2,7 +2,7 @@
 #define ENVMON_ESP8266_H
 
 // ========== 版本号 ==========
-#define FIRMWARE_VERSION     "2.1.0"
+#define FIRMWARE_VERSION     "2.2.0"
 #define FIRMWARE_BUILD       "2026-09-20"
 
 // ========== WiFi 配置 ==========
@@ -66,7 +66,7 @@
 #define RETRY_COUNT         3      // 网络重试次数
 #define RETRY_DELAY_MS      2000   // 重试间隔
 
-// ========== 报警阈值 ==========
+// ========== 报警阈值 (生理参数) ==========
 #define TEMP_LOW            35.5
 #define TEMP_HIGH           37.5
 #define HUM_LOW             40.0
@@ -144,7 +144,16 @@ bool audioBusy();
 bool max30102Init();
 void max30102Tick();
 void max30102GetResult(float* spo2, float* hr, bool* valid);
+void max30102GetBpResult(float* sbp, float* dbp, bool* valid);
 bool max30102IsInitialized();
 int32_t max30102GetBufferIndex();
+
+// 血压估算 (v2.2.0 新增)
+void bpEstimateUpdate(const uint32_t* irWave, int waveLen,
+                      float heart_rate,
+                      float* sbp, float* dbp, bool* valid);
+float bpEstimateGetSbp();
+float bpEstimateGetDbp();
+bool bpEstimateIsValid();
 
 #endif // ENVMON_ESP8266_H

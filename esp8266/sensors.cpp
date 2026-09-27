@@ -17,6 +17,7 @@
 #include <DHT.h>
 
 #include "envmon_esp8266.h"
+#include "max30102_config.h"
 
 // ========== DHT11 实例 ==========
 DHT dht(TEMP_PIN, DHT_TYPE);
@@ -97,6 +98,16 @@ void sensorsRead(SensorData& data) {
       data.spo2 = spo2;
       data.heart_rate = hr;
       data.vital_valid = true;
+
+      // 血压估算 (v2.2.0)
+      #if BP_ESTIMATE_ENABLED
+      float sbp, dbp; bool bp_ok;
+      max30102GetBpResult(&sbp, &dbp, &bp_ok);
+      if (bp_ok) {
+        data.bp_systolic = sbp;
+        data.bp_diastolic = dbp;
+      }
+      #endif
     }
   }
 }

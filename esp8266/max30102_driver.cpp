@@ -7,7 +7,7 @@
  *   - 非阻塞 tick(): 主循环轮询 FIFO, 累积到滚动缓冲, 满 100 样本调用算法
  *   - Maxim 官方算法 (峰值检测 + 比值法) 简化实现
  *
- * 引脚: SDA=GPIO2, SCL=GPIO5
+ * 引脚: SDA=GPIO2, SCL=GPIO1
  * I2C 地址: 0x57
  *
  * 寄存器地址参考: Maxim MAX30102 datasheet (2015 v1.3)
@@ -20,6 +20,7 @@
 #include <Wire.h>
 
 #include "envmon_esp8266.h"
+#include "max30102_config.h"
 
 // ========== MAX30102 配置 ==========
 #define MAX30102_SDA_PIN    2     // GPIO2 (D1)
@@ -93,6 +94,9 @@ static int32_t  lastSpo2 = 0;
 static int8_t   lastSpo2Valid = 0;
 static int32_t  lastHeartRate = 0;
 static int8_t   lastHRValid = 0;
+static float    lastBpSbp = 0;
+static float    lastBpDbp = 0;
+static bool     lastBpValid = false;
 
 static unsigned long lastCalcTime = 0;
 static bool initialized = false;
@@ -321,6 +325,21 @@ void max30102Tick() {
         Serial.printf("[MAX30102] SpO2=%d%s HR=%d%s\n",
                       lastSpo2, lastSpo2Valid ? "%" : "(invalid)",
                       lastHeartRate, lastHRValid ? "bpm" : "(invalid)");
+
+        // v2.2.0: 同步估算血压 (基于 PPG 波形)
+        #if BP_ESTIMATE_ENABLED
+        if (lastHRValid) {
+          float sbp, dbp; bool bp_ok;
+          bpEstimateUpdate(irBuffer, SPO2_BUFFER_SIZE,
+                          (float)lastHeartRate,
+                          &sbp, &dbp, &bp_ok);
+          if (bp_ok) {
+            lastBpSbp = sbp;
+            lastBpDbp = dbp;
+            lastBpValid = true;
+          }
+        }
+        #endif
       }
     }
   }
@@ -331,6 +350,13 @@ void max30102GetResult(float* spo2, float* hr, bool* valid) {
   *spo2 = lastSpo2Valid ? (float)lastSpo2 : 0.0f;
   *hr   = lastHRValid   ? (float)lastHeartRate : 0.0f;
   *valid = (lastSpo2Valid && lastHRValid);
+}
+
+// ========== 血压估算结果 (v2.2.0) ==========
+void max30102GetBpResult(float* sbp, float* dbp, bool* valid) {
+  *sbp = lastBpValid ? lastBpSbp : 0.0f;
+  *dbp = lastBpValid ? lastBpDbp : 0.0f;
+  *valid = lastBpValid;
 }
 
 bool max30102IsInitialized() { return initialized; }

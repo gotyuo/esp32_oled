@@ -6,6 +6,100 @@ EnvMon ESP 固件 - 全部版本记录
 
 ---
 
+## [v2.2.0] - 2026-09-20
+
+### 概述
+
+**血压估算功能启用**。基于 v2.1.0 的 MAX30102 PPG 波形数据，使用单路 PPG 形态学 + 心率经验公式估算 SBP/DBP (无创 cuffless BP)。
+
+### Added (新增功能)
+
+- **血压估算模块**: `esp8266/bp_estimator.cpp`
+  - 基于单路 PPG 波形 (IR 通道 100 样本) 的形态学分析
+  - 提取特征: 收缩峰幅值、收缩期上升斜率、舒张峰位置、脉搏波宽度 (PWV proxy)
+  - 经验公式: SBP/DBP = 基线 (120/80 mmHg) + 特征加权项 + 心率调整项
+  - 自适应突变抑制: 单次估算与上次差异 > 30 mmHg 视为异常, 保持上次值
+  - 生理约束: SBP > DBP+10, SBP∈[80,180], DBP∈[50,110]
+
+- **血压报警阈值**: `esp8266/max30102_config.h`
+  - SBP < 90 或 > 150 mmHg 报警
+  - DBP < 50 或 > 100 mmHg 报警
+
+- **血压集成**: `esp8266/max30102_driver.cpp` + `sensors.cpp`
+  - `bpEstimateUpdate()` 在每次心率计算后调用
+  - `max30102GetBpResult()` 读取 SBP/DBP/有效性
+  - SensorData 结构新增 `bp_systolic` / `bp_diastolic` 字段
+
+- **OLED 血压显示**: `esp8266/oled_driver.cpp`
+  - 底行右侧显示 SBP/DBP (例如 `120/80`)
+  - 仅血压估算有效时显示
+
+- **JSON 上报扩展**: `esp8266/platform_client.cpp`
+  - `/api/ingest` 上报新增 `bp_systolic` / `bp_diastolic` 字段
+
+### 参考
+
+- 刘乔寿, 王森. 基于单路 PPG 信号的连续血压检测算法设计. 电子设计工程, 2019, 27(1): 63-69.
+  https://gitee.com/NaN01/heart-rate-sp-o2-analyzer
+- Zeitzman et al. "Blood pressure monitoring by way of photoplethysmography."
+  J Biomech Eng 2014. (PMC4512231)
+
+### 已知限制
+
+- **非临床精度**: 单点估算 ±10-15 mmHg, 仅作辅助参考, 不能用于诊断
+- **依赖 PPG 信号质量**: 用户手指按压不足、运动伪影、环境光过强会导致估算不可靠
+- **首次估算依赖基线值**: 用户静息心率偏离基线 (75 bpm) 时 SBP 偏差会放大
+- **冷启动**: 需要至少一次完整 100 样本 PPG 波形 (~4 秒) 才能产出 BP
+
+---
+
+## [v2.1.0] - 2026-09-20
+
+### 概述
+
+**MAX30102 血氧/心率接入**。ESP8266 设备新增 PPG 传感器, 可采集 SpO2 (%) + 心率 (bpm)。
+
+### Added
+
+- **MAX30102 原生驱动**: `esp8266/max30102_driver.cpp`
+  - 直接 Wire.h 操作 MAX30102 寄存器 (不依赖外部库, 节省 ESP8266 内存)
+  - SpO2 模式 (RED+IR 双 LED), 采样率 100Hz, 411μs 脉宽, 4096nA ADC
+  - 非阻塞 `tick()`: 轮询 FIFO, 累积 100 样本 (~4 秒) 后调用算法
+  - 简化版 Maxim MAXREFDES117# 算法: AC/DC 比值法 + 峰值检测
+  - 输出: SpO2 (%) + 心率 (bpm) + 有效性标志
+
+- **配置头**: `esp8266/max30102_config.h` (引脚与 SpO2/HR 阈值)
+- **报警阈值**: SpO2 < 94%, HR < 50 或 > 120 bpm 报警
+- **OLED 更新**: 主屏显示 SpO2/HR 大字, 温湿度小字
+- **JSON 上报**: `/api/ingest` 新增 `spo2_pct` / `heart_rate` 字段
+
+### 引脚
+
+- MAX30102 SDA=GPIO2 (D1), SCL=GPIO1 (D10)
+- 避开 ESP8266 硬件 SPI (GPIO13/14/15) 与 OLED CS/DC
+- OLED DC 从 GPIO5 改到 GPIO4 (因原 GPIO5 与 MAX30102 SCL 冲突)
+
+### 参考
+
+- Gitee: https://gitee.com/NaN01/heart-rate-sp-o2-analyzer
+- GitHub: https://github.com/sparkfun/SparkFun_MAX3010x_Sensor_Library
+- 算法: Maxim MAXREFDES117# (spo2_algorithm.h, BSD)
+- 文档: Maxim MAX30102 datasheet 2015 v1.3
+
+---
+
+## [v2.0.1] - 2026-09-20
+
+### Fixed
+
+- **ESP8266 构建失败** (PlatformIO 6.x src_dir 行为)
+  - 重命名 env: `envmon-esp8266` → `esp8266`, `envmon-esp32` → `esp32` (匹配目录名)
+  - 设置 `src_dir = esp8266` (在 [platformio] 段生效)
+  - 简化 `build_src_filter`
+  - 移除 `esp8266/dht_probe.ino` (避免 PlatformIO 多 .ino 冲突), 移到 `probes/`
+
+---
+
 ## [v2.0.0] - 2026-09-09
 
 ### 概述
@@ -82,9 +176,9 @@ EnvMon ESP 固件 - 全部版本记录
 
 ### Known Issues (已知问题)
 
-1. **明文 HTTP**: 当前使用 HTTP 而非 HTTPS，Token 可能在线路中泄露。HTTPS 列入 v2.1.0 计划。
+1. **明文 HTTP**: 当前使用 HTTP 而非 HTTPS，Token 可能在线路中泄露。HTTPS 列入 v2.3.0 计划。
 2. **心电监护未实现**: AD8232 接线已预留，但 `ekg_stub.cpp` 仅占位，无实际采集逻辑。
-3. **无 BLE 配网**: WiFi 凭据需硬编码，不支持 BLE 无屏配网。列入 v2.1.0。
+3. **无 BLE 配网**: WiFi 凭据需硬编码，不支持 BLE 无屏配网。列入 v2.3.0。
 4. **离线缓存未实现**: 网络断开时数据丢失，未实现本地队列。
 5. **GPIO 25 复用冲突**: 麦克风 BCLK 与喇叭 DAC 共用 GPIO 25，运行时需软件分时。
 6. **无本地看门狗**: 异常崩溃依赖启动失败检测，运行时无实时看门狗。
@@ -117,7 +211,7 @@ v1.x 系列使用 MQTT over UDP 上报到端口 5683，仅支持 ESP32 单平台
 
 ---
 
-## [Unreleased / v2.1.0] - (计划中)
+## [Unreleased / v2.3.0] - (计划中)
 
 ### 计划新增
 
@@ -129,12 +223,14 @@ v1.x 系列使用 MQTT over UDP 上报到端口 5683，仅支持 ESP32 单平台
 - [ ] **OTA 灰度发布**: 按设备分组分批升级
 - [ ] **OTA HTTPS**: 与 HTTPS 传输对齐
 - [ ] **设备管理 API**: 平台端设备列表、状态查询
+- [ ] **血压估算校准**: 多用户基线学习, 减少个体偏差
 
 ### 计划修复
 
 - [ ] GPIO 25 复用冲突: 重分配引脚或实现硬件分时
 - [ ] ADC1 校准: WiFi 启动后重新校准 ADC
 - [ ] 启动失败阈值可配置
+- [ ] ESP8266 蓝牙配网 (BLE Mesh 或 ESPNow)
 
 ---
 
@@ -149,8 +245,10 @@ vMAJOR.MINOR.PATCH
 ```
 
 - **v2.0.0**: 重写版本，协议/架构重大变更
-- **v2.0.1**: 修复 v2.0.0 中的小 bug
-- **v2.1.0**: 新增 HTTPS / BLE 配网等大功能
+- **v2.0.1**: 修复 v2.0.0 中的小 bug (PlatformIO 6.x 构建)
+- **v2.1.0**: MAX30102 SpO2 + 心率接入
+- **v2.2.0**: 血压估算启用
+- **v2.3.0**: 计划中 (HTTPS / BLE 配网 / 离线缓存等)
 
 ---
 
