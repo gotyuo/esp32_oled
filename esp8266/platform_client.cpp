@@ -112,10 +112,13 @@ bool netReport(const SensorData& data) {
     doc["heart_rate"] = data.heart_rate;
   }
 
-  // 血压估算 (v2.2.0 启用)
+  // 血压估算 (v2.2.0 启用; v2.3.0 校准状态)
   if (BP_ESTIMATE_ENABLED && data.vital_valid && data.bp_systolic > 0) {
     doc["bp_systolic"] = data.bp_systolic;
     doc["bp_diastolic"] = data.bp_diastolic;
+    if (data.bp_calibrated) {
+      doc["bp_calibrated"] = true;
+    }
   }
 
   // 时间戳

@@ -2,8 +2,8 @@
 #define ENVMON_ESP8266_H
 
 // ========== 版本号 ==========
-#define FIRMWARE_VERSION     "2.2.0"
-#define FIRMWARE_BUILD       "2026-09-20"
+#define FIRMWARE_VERSION     "2.3.0"
+#define FIRMWARE_BUILD       "2026-09-28"
 
 // ========== WiFi 配置 ==========
 #define WIFI_SSID       "YOUR_WIFI_SSID"
@@ -99,6 +99,7 @@ struct SensorData {
   uint32_t timestamp_ms;
   bool valid;        // 温湿度是否有效
   bool vital_valid;  // 生命体征 (SpO2/HR) 是否有效
+  bool bp_calibrated;// 血压已校准 (个体基线就绪) — v2.3.0 新增
 };
 
 // ========== 全局状态 ==========
@@ -148,7 +149,7 @@ void max30102GetBpResult(float* sbp, float* dbp, bool* valid);
 bool max30102IsInitialized();
 int32_t max30102GetBufferIndex();
 
-// 血压估算 (v2.2.0 新增)
+// 血压估算 (v2.2.0 新增; v2.3.0 启用个体基线校准)
 void bpEstimateUpdate(const uint32_t* irWave, int waveLen,
                       float heart_rate,
                       float* sbp, float* dbp, bool* valid);

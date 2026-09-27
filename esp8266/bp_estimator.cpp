@@ -24,6 +24,7 @@
 #include <Arduino.h>
 
 #include "envmon_esp8266.h"
+#include "bp_calibration.h"
 
 // ========== 经验公式参数 (可调) ==========
 // 基线值 (健康成人静息参考)
@@ -130,30 +131,49 @@ bool ppgFeatureExtract(const uint32_t* irWave, int len, PpgFeature* out) {
   return true;
 }
 
-// ========== 血压估算 ==========
+// ========== 血压估算 (v2.2.0 全局基线) ==========
 /*
  * 基于 PPG 形态学 + 心率经验公式估算血压
  * 返回: true 估算有效, false 不可靠
  */
+bool estimateBpCalibrated(const PpgFeature& feature, float heart_rate,
+                          float b_amp, float b_slope, float b_pwv,
+                          float* sbp, float* dbp);  // 前向声明 (v2.3.0)
+
 bool estimateBp(const PpgFeature& feature, float heart_rate,
                 float* sbp, float* dbp) {
+  return estimateBpCalibrated(feature, heart_rate,
+                              1.0f, 1.0f, 0.15f, sbp, dbp);
+}
+
+// ========== 血压估算 (v2.3.0 个体基线) ==========
+/*
+ * 同 estimateBp, 但用个体基线 (b_amp/b_slope/b_pwv) 替代全局默认值
+ * (1.0, 1.0, 0.15). 个体基线由 bp_calibration 模块学习得到.
+ */
+bool estimateBpCalibrated(const PpgFeature& feature, float heart_rate,
+                          float b_amp, float b_slope, float b_pwv,
+                          float* sbp, float* dbp) {
   if (!feature.valid || heart_rate < BP_VALID_MIN_HR ||
       heart_rate > BP_VALID_MAX_HR) {
     *sbp = 0; *dbp = 0;
     return false;
   }
 
-  // Step 1: SBP 估算
-  // SBP = baseline + α*peak_amp + β*slope + HR 调整
+  // 防止除零 / NaN (v2.3.0 新增防御)
+  if (b_amp < 0.5f)  b_amp   = 0.5f;
+  if (b_slope < 0.5f) b_slope = 0.5f;
+  if (b_pwv < 0.05f) b_pwv   = 0.05f;
+
+  // Step 1: SBP 估算 (相对个体基线的偏移)
   float sbp_calc = BASELINE_SBP
-      + SBP_PEAK_COEFF * (feature.peak_amplitude - 1.0f) * 100.0f   // 峰值偏移
-      + SBP_SLOPE_COEFF * (feature.rise_slope - 1.0f) * 10.0f       // 上升斜率
-      - DBP_HR_COEFF * (heart_rate - BASELINE_HR) * 0.5f;           // 心率调整
+      + SBP_PEAK_COEFF * (feature.peak_amplitude - b_amp) * 100.0f   // 峰值偏移
+      + SBP_SLOPE_COEFF * (feature.rise_slope - b_slope) * 10.0f     // 上升斜率
+      - DBP_HR_COEFF * (heart_rate - BASELINE_HR) * 0.5f;            // 心率调整
 
   // Step 2: DBP 估算
-  // DBP = baseline - γ*pwv + HR 调整
   float dbp_calc = BASELINE_DBP
-      - DBP_SHAPE_COEFF * (feature.pwv_proxy - 0.15f) * 50.0f        // 脉搏波宽
+      - DBP_SHAPE_COEFF * (feature.pwv_proxy - b_pwv) * 50.0f        // 脉搏波宽
       + DBP_HR_COEFF * (heart_rate - BASELINE_HR) * 0.3f;            // 心率调整
 
   // Step 3: 合理性截断 (正常血压范围)
@@ -187,16 +207,23 @@ bool estimateBp(const PpgFeature& feature, float heart_rate,
   return true;
 }
 
-// ========== 主入口 ==========
+// ========== 主入口 (v2.3.0) ==========
 /*
  * 在每次心率计算后调用
  * irWave: 100 样本 IR 通道 PPG 波形
  * heart_rate: 已算出的心率
+ * base_peak_amp / base_slope / base_pwv: 个体基线 (NULL 时使用全局默认值)
  * 返回: 估算的 SBP/DBP
+ *
+ * v2.3.0: 每次估算成功后, 自动把本拍的形态学特征喂入 bp_calibration
+ * 模块, 让其滚动累积个体基线. 这样校准无需调用方手动喂数据.
  */
 void bpEstimateUpdate(const uint32_t* irWave, int waveLen,
                       float heart_rate,
-                      float* sbp, float* dbp, bool* valid) {
+                      float* sbp, float* dbp, bool* valid,
+                      const float* base_peak_amp,
+                      const float* base_slope,
+                      const float* base_pwv) {
   *sbp = 0; *dbp = 0; *valid = false;
 
   PpgFeature feature;
@@ -206,16 +233,40 @@ void bpEstimateUpdate(const uint32_t* irWave, int waveLen,
 
   lastFeature = feature;
 
+  // v2.3.0: 个体基线 (来自 bp_calibration 模块); NULL 时退回全局默认值
+  float b_amp   = base_peak_amp ? *base_peak_amp : bpCalibGetPeakAmp();
+  float b_slope = base_slope    ? *base_slope    : bpCalibGetSlope();
+  float b_pwv   = base_pwv      ? *base_pwv      : bpCalibGetPwv();
+
   float sbp_val, dbp_val;
-  if (estimateBp(feature, heart_rate, &sbp_val, &dbp_val)) {
+  if (estimateBpCalibrated(feature, heart_rate, b_amp, b_slope, b_pwv,
+                            &sbp_val, &dbp_val)) {
     *sbp = sbp_val;
     *dbp = dbp_val;
     *valid = true;
 
-    Serial.printf("[BP] SBP=%.0f DBP=%.0f (HR=%.0f, peak_amp=%.2f, slope=%.2f)\n",
+    // v2.3.0: 自动把本拍特征喂入校准模块 (始终进行, 让校准在后台累积)
+    BpCalibFeature cf = {
+      feature.peak_amplitude,
+      feature.rise_slope,
+      feature.pwv_proxy
+    };
+    bpCalibFeedHeartbeat(&cf);
+
+    Serial.printf("[BP] SBP=%.0f DBP=%.0f (HR=%.0f, peak=%.2f/%.2f, slope=%.2f/%.2f)%s\n",
                   sbp_val, dbp_val, heart_rate,
-                  feature.peak_amplitude, feature.rise_slope);
+                  feature.peak_amplitude, b_amp,
+                  feature.rise_slope, b_slope,
+                  bpCalibIsCalibrated() ? " [calibrated]" : " [calibrating]");
   }
+}
+
+// 兼容旧签名 (v2.2.0 调用方): 无基线参数, 使用全局默认值
+void bpEstimateUpdate(const uint32_t* irWave, int waveLen,
+                      float heart_rate,
+                      float* sbp, float* dbp, bool* valid) {
+  bpEstimateUpdate(irWave, waveLen, heart_rate, sbp, dbp, valid,
+                   nullptr, nullptr, nullptr);
 }
 
 // ========== 诊断 ==========

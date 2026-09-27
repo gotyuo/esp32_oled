@@ -6,6 +6,59 @@ EnvMon ESP 固件 - 全部版本记录
 
 ---
 
+## [v2.3.0] - 2026-09-28
+
+### 概述
+
+**血压估算个体基线校准**。在 v2.2.0 的全局基线血压估算基础上, 新增在设备本地实时学习个体 PPG 形态学基线 (peak_amplitude / rise_slope / pwv_proxy), 用个体基线替代全局默认值, 减少 10-20 mmHg 的个体偏差。
+
+### Added (新增功能)
+
+- **血压校准模块**: `esp8266/bp_calibration.{h,cpp}` (新文件)
+  - 滚动缓冲区 (`BP_CALIB_BUFFER=12` 拍), 移动平均算法
+  - 个体基线: `peak_amplitude_ma` / `rise_slope_ma` / `pwv_proxy_ma`
+  - 状态机: `INITIALIZING` → `COLLECTING` (1-11 拍) → `READY` (≥12 拍)
+  - 自动喂入: `bpEstimateUpdate()` 每次估算成功后自动把本拍特征喂入校准模块, 调用方无需关心
+  - 内存开销: 约 1.3 KB (含 12 拍特征缓冲 + 状态结构)
+  - 无持久化: 重启后重新校准 (12 拍 ≈ 1-2 分钟即完成, 设计选择)
+
+- **个体基线血压公式**: `esp8266/bp_estimator.cpp`
+  - 新增 `estimateBpCalibrated()`: 用个体基线 `b_amp / b_slope / b_pwv` 替代全局默认值 (1.0/1.0/0.15)
+  - 新增防御: `b_amp < 0.5 / b_slope < 0.5 / b_pwv < 0.05` 时强制截断, 防止除零 / NaN
+  - 旧 `estimateBp()` 委托给 `estimateBpCalibrated()` 用全局默认基线, 保持 API 兼容
+
+- **SensorData 字段**: `bp_calibrated` (bool) — 标识当前 BP 估算是否使用个体校准基线
+
+- **OLED 校准指示**: `esp8266/oled_driver.cpp`
+  - 血压数值右侧追加标记: `C` (已校准) / `.` (校准中)
+  - 示例: `120/80 C` (已校准) vs `118/79 .` (累积中)
+
+- **JSON 上报扩展**: `esp8266/platform_client.cpp`
+  - `/api/ingest` 上报新增 `bp_calibrated: true` 字段 (仅在校准完成时附带)
+  - 平台侧可据此过滤未校准的早期 BP 数据
+
+### Changed (行为变化)
+
+- 首次启动后前 12 拍 (~1-2 分钟) 使用全局基线 (1.0/1.0/0.15), BP 估算可能有 10-20 mmHg 个体偏差
+- 12 拍后切换到个体基线, 后续估算偏差显著降低
+- 串口日志追加 `[calibrated]` / `[calibrating]` 标识, 便于现场诊断
+- `max30102Init()` 末尾新增 `bpCalibInit()` 调用, 确保校准模块在 MAX30102 就绪后初始化
+
+### 参考
+
+- v2.2.0 参考文献同前 (刘乔寿 / Zeitzman / PMC4512231)
+- 校准策略: 短窗口移动平均 (rolling mean), 与商业 cuffless BP 设备的个体化基线学习思路一致
+  (但精度远低于多通道 PPG + PTT 的方案)
+
+### 已知限制
+
+- **无持久化**: 每次重启重新校准 (~1-2 分钟), 期间 BP 估算沿用全局基线
+- **个体化精度上限**: 即使校准完成, 单路 PPG + 心率公式的理论精度仍在 ±5-10 mmHg, 非临床
+- **校准窗口固定**: `BP_CALIB_BUFFER=12` 拍, 用户心率变化较大时可能需要更长窗口才能稳定
+- **未做用户切换检测**: 多人共用设备时, 个体基线会逐步从 A 用户漂移到 B 用户 (需要重启或按物理按钮 reset 才能重新校准)
+
+---
+
 ## [v2.2.0] - 2026-09-20
 
 ### 概述

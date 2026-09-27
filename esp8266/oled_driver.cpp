@@ -89,9 +89,13 @@ void oledUpdate(const SensorData& data) {
   snprintf(tmp, sizeof(tmp), "T=%.0fC H=%.0f%%", data.temp_c, data.hum_pct);
   u8g2.drawStr(0, 58, tmp);
 
-  // 血压显示 (仅 valid 时显示)
+// 血压显示 (仅 valid 时显示); v2.3.0: 校准状态用 "C" / "." 区分
   if (data.bp_systolic > 0 && data.bp_diastolic > 0) {
-    snprintf(tmp, sizeof(tmp), "%.0f/%.0f", data.bp_systolic, data.bp_diastolic);
+    if (data.bp_calibrated) {
+      snprintf(tmp, sizeof(tmp), "%.0f/%.0f C", data.bp_systolic, data.bp_diastolic);
+    } else {
+      snprintf(tmp, sizeof(tmp), "%.0f/%.0f .", data.bp_systolic, data.bp_diastolic);
+    }
     u8g2.drawStr(80, 58, tmp);
   }
 

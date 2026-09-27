@@ -21,6 +21,7 @@
 
 #include "envmon_esp8266.h"
 #include "max30102_config.h"
+#include "bp_calibration.h"
 
 // ========== MAX30102 配置 ==========
 #define MAX30102_SDA_PIN    2     // GPIO2 (D1)
@@ -136,7 +137,8 @@ bool max30102Init() {
     Serial.println("[MAX30102] !! I2C 探测失败 (地址 0x57 未响应)");
     Serial.println("[MAX30102] 请检查:");
     Serial.println("[MAX30102]   1. VCC=3.3V 或 5V 模块, GND 已连接");
-    Serial.println("[MAX30102]   2. SDA=GPIO2, SCL=GPIO5 接线正确");
+    Serial.printf("[MAX30102]   2. SDA=GPIO%d, SCL=GPIO%d 接线正确\n",
+                  MAX30102_SDA_PIN, MAX30102_SCL_PIN);
     Serial.println("[MAX30102]   3. SDA/SCL 需 4.7kΩ 上拉到 3.3V");
     Serial.println("[MAX30102]   4. 模块可能需要 5V 供电 (LED 部分)");
     return false;
@@ -181,6 +183,12 @@ bool max30102Init() {
   lastSpo2Valid = 0;
   lastHRValid = 0;
   initialized = true;
+
+  // v2.3.0: 初始化血压个体基线校准模块
+  #if BP_ESTIMATE_ENABLED
+  bpCalibInit();
+  Serial.printf("[MAX30102] 血压校准模块就绪 (缓冲=%d 拍)\n", BP_CALIB_BUFFER);
+  #endif
 
   Serial.printf("[MAX30102] 初始化成功 (亮度=%d, 采样率=100Hz)\n", LED_BRIGHTNESS);
   return true;
