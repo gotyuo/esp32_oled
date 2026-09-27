@@ -1,14 +1,14 @@
 /*
  * EnvMon ESP8266 - 传感器驱动
- * 
+ *
  * 传感器:
  *   - DHT11 温湿度 (GPIO3)
- * 
+ *
  * ESP8266 与 ESP32 的区别:
  *   - 使用 DHT11 (ESP32 使用 DHT22)
  *   - 无麦克风、喇叭、心电监护支持
  *   - 无 BMP280 气压传感器 (ESP32 有)
- * 
+ *
  * DHT11 精度: ±2°C 温度, ±5% 湿度
  * 采样间隔: 至少 2 秒 (DHT11 官方建议)
  */
@@ -25,25 +25,35 @@ DHT dht(TEMP_PIN, DHT_TYPE);
 static float tempOffset = 0.0;
 static float humOffset  = 0.0;
 
+static bool isNanValue(float x) {
+  return x != x;
+}
+
 // ========== 初始化 ==========
 bool sensorsInit() {
   Serial.println("[Sensor] DHT11 初始化...");
-  
+
+  pinMode(TEMP_PIN, INPUT_PULLUP);
+  Serial.printf("[Sensor] DHT11 pin %d initial level=%d\n", TEMP_PIN, digitalRead(TEMP_PIN));
+
   dht.begin();
-  
-  // DHT11 需要短暂延时后首次读取
-  delay(2000);
-  
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-  
-  if (isnan(t) || isnan(h)) {
-    Serial.println("[Sensor] DHT11 读取失败!");
-    return false;
+
+  for (int attempt = 0; attempt < 3; attempt++) {
+    delay(2000);
+
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+
+    if (!isNanValue(t) && !isNanValue(h)) {
+      Serial.printf("[Sensor] DHT11 OK: %.1f°C, %.1f%%\n", t, h);
+      return true;
+    }
+
+    Serial.printf("[Sensor] DHT11 read failed attempt=%d temp_nan=%d hum_nan=%d\n", attempt + 1, isNanValue(t), isNanValue(h));
   }
-  
-  Serial.printf("[Sensor] DHT11 OK: %.1f°C, %.1f%%\n", t, h);
-  return true;
+
+  Serial.println("[Sensor] DHT11 读取失败!");
+  return false;
 }
 
 // ========== 校准 ==========
@@ -59,26 +69,26 @@ void sensorsCalibrate() {
 void sensorsRead(SensorData& data) {
   // DHT11 最低采样频率 0.5Hz (每 2 秒一次)
   static unsigned long lastReadTime = 0;
-  
+
   if (millis() - lastReadTime < 2000) {
     data.valid = false;
     return;
   }
-  
+
   lastReadTime = millis();
-  
+
   float h = dht.readHumidity();
   float t = dht.readTemperature();
-  
-  if (isnan(h) || isnan(t)) {
+
+  if (isNanValue(h) || isNanValue(t)) {
     data.valid = false;
     return;
   }
-  
+
   // 应用校准偏移
   data.hum_pct = h + humOffset;
   data.temp_c = t + tempOffset;
-  
+
   data.timestamp_ms = millis();
   data.valid = true;
 }

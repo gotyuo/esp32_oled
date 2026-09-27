@@ -14,10 +14,11 @@
  */
 
 #include <Arduino.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
-#include <ESP8266OTA.h>
+#include <ESP8266HTTPUpdateServer.h>
+#include <ArduinoOTA.h>
 #include "envmon_esp8266.h"
 
 // 全局网络状态
@@ -35,10 +36,11 @@ bool netInit() {
 // ========== 设备注册 ==========
 bool netRegister() {
   HTTPClient http;
+  WiFiClient client;
   
   String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/devices";
   
-  http.begin(url);
+  http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
   
@@ -79,11 +81,11 @@ bool netReport(const SensorData& data) {
   }
   
   HTTPClient http;
+  WiFiClient client;
   
   String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + INGEST_PATH;
   
-  http.begin(url);
-  http.setConnectTimeout(5000);
+  http.begin(client, url);
   http.setTimeout(5000);
   
   http.addHeader("Content-Type", "application/json");
@@ -136,10 +138,11 @@ void netHeartbeat() {
   if (!WiFi.isConnected()) return;
   
   HTTPClient http;
+  WiFiClient client;
   
   String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + INGEST_PATH;
   
-  http.begin(url);
+  http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
   
@@ -178,10 +181,11 @@ void otaCheck() {
   lastCheck = millis();
   
   HTTPClient http;
+  WiFiClient client;
   
   String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + OTA_LIST_PATH;
   
-  http.begin(url);
+  http.begin(client, url);
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
   
   int code = http.GET();
@@ -190,8 +194,8 @@ void otaCheck() {
     String body = http.getString();
     
     // 解析固件列表
-    StaticJsonDocument<512> doc;
-    DeserializationError error = parseJson(doc, body);
+    DynamicJsonDocument doc(512);
+    DeserializationError error = deserializeJson(doc, body);
     
     if (!error) {
       JsonArray images = doc["images"];
@@ -223,12 +227,13 @@ void triggerOTA(const String& version) {
   oledShowOTA(0);
   
   HTTPClient http;
+  WiFiClient client;
   
   // 使用 /api/ota/push/{device_id} 端点
   String url = String("http://") + SERVER_HOST + ":" + SERVER_PORT + "/api/ota/push/";
   url += DEVICE_ID;
   
-  http.begin(url);
+  http.begin(client, url);
   http.addHeader("Authorization", String("Bearer ") + AUTH_TOKEN);
   http.addHeader("Content-Type", "application/json");
   

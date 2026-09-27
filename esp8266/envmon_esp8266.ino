@@ -7,14 +7,16 @@
  * 功能:
  * - WiFi 连接 + 自动重连
  * - DHT11 温湿度采集 (ESP8266: GPIO3)
- * - OLED 状态显示 (I2C SDA=4, SCL=5 — 注意与 ESP32 不同!)
+ * - OLED 状态显示 (SSD1315 SPI, CS=15, DC=5, MOSI=13, SCK=14)
+ * - 有源蜂鸣器 / 喇叭提示与报警音 (默认 GPIO16)
  * - HTTP POST 上报到 /api/ingest
  * - OTA 固件升级 (ArduinoOTA)
  * 
  * ESP8266 与 ESP32 的主要区别:
  *   - OLED 引脚: SDA=4, SCL=5 (ESP32 为 21/22)
  *   - 温湿度传感器: DHT11 (ESP32 为 DHT22)
- *   - 无麦克风、喇叭、心电监护支持
+ *   - 无麦克风、心电监护支持
+ *   - 喇叭使用 GPIO 驱动的有源蜂鸣器 / 喇叭模块 (ESP32 当前使用 I2S 音频)
  *   - 无 BMP280 气压传感器
  *   - 内存有限 (约 80KB RAM)，需要优化
  * 
@@ -26,14 +28,14 @@
  */
 
 #include <Arduino.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 #include <WiFiUdp.h>
-#include <ESP8266HTTPServer.h>
-#include <ESP8266OTA.h>
+#include <ArduinoOTA.h>
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
 #include <DHT.h>
+#include <ESP8266Audio.h>
 
 #include "envmon_esp8266.h"
 
@@ -45,10 +47,6 @@ unsigned long lastOledUpdate = 0;
 unsigned long lastHeartbeat = 0;
 bool alarmActive = false;
 char alarmReason[128] = "";
-
-// ESP8266 HTTP 服务器 (OTA + 状态页)
-ESP8266HTTPServer server(80);
-HTTPUpdateServer httpUpdate;
 
 // ========== 启动信息 ==========
 void printBanner() {
@@ -85,6 +83,7 @@ void connectWiFi() {
   }
   Serial.println("\nWiFi 已连接");
   Serial.printf(" IP: %s\n", WiFi.localIP().toString().c_str());
+  audioStartWiFiOn();
   
   currentState = STATE_WIFI_CONNECTED;
 }
@@ -92,12 +91,6 @@ void connectWiFi() {
 // ========== OTA 服务器初始化 ==========
 void setupOTA() {
   if (!OTA_ENABLED) return;
-  
-  // 状态页面
-  server.on("/", HTTP_GET, [](ESP8266HTTPServer& srv) {
-    srv.send(200, "text/plain", "EnvMon ESP8266 v" FIRMWARE_VERSION "\n");
-  });
-  server.begin();
   
   // 使用 ArduinoOTA 进行 OTA 更新
   ArduinoOTA.setHostname(DEVICE_ID);
@@ -107,6 +100,7 @@ void setupOTA() {
     Serial.println("[OTA] 升级开始");
     currentState = STATE_OTA;
     oledShowStatus("OTA 升级开始...");
+    audioStartOtaStart();
   });
   
   ArduinoOTA.onEnd([]() {
@@ -124,6 +118,7 @@ void setupOTA() {
     Serial.printf("[OTA] 错误: %d\n", (int)error);
     currentState = STATE_ERROR;
     oledShowStatus("OTA 失败");
+    audioStartError();
   });
   
   ArduinoOTA.begin();
@@ -137,6 +132,7 @@ void setupOTA() {
 void checkAlarm(const SensorData& data) {
   if (!data.valid) {
     alarmActive = false;
+    audioSetAlarm(false);
     return;
   }
   
@@ -155,6 +151,7 @@ void checkAlarm(const SensorData& data) {
   
   if (alarm != alarmActive) {
     alarmActive = alarm;
+    audioSetAlarm(alarm);
     if (alarm) {
       snprintf(alarmReason, sizeof(alarmReason), "%s", reason);
       Serial.printf("[ALARM] %s\n", alarmReason);
@@ -168,6 +165,8 @@ void checkAlarm(const SensorData& data) {
 
 // ========== 主循环 ==========
 void loop() {
+  audioTick();
+
   // WiFi 断线重连
   if (WiFi.status() != WL_CONNECTED) {
     currentState = STATE_WIFI_CONNECTING;
@@ -186,7 +185,7 @@ void loop() {
     lastOledUpdate = millis();
     if (alarmActive) {
       oledShowAlarm(alarmReason);
-      // ESP8266 无喇叭，仅显示报警
+      // 报警状态下同时发声；显示与声音由各自驱动负责
     } else {
       oledUpdate(currentData);
     }
@@ -214,6 +213,7 @@ void loop() {
     } else {
       currentState = STATE_ERROR;
       oledShowStatus("上报失败，重试中...");
+      audioStartError();
     }
   }
   
@@ -237,6 +237,8 @@ void setup() {
   
   // 初始化子系统
   oledInit();
+  audioInit();
+  audioStartBoot();
   sensorsCalibrate();
   sensorsInit();
   netInit();
