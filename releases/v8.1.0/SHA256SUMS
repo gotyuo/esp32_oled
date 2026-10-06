@@ -1,0 +1,4 @@
+876f58f4c5e2b2a3eae9e025b29096f034af99f6617edae3676817306d306dcf  firmware/bootloader.bin
+1e23ae93468e754a9ce5def7169cc72561a8abfd471f96570de648272a291863  firmware/envmon-esp32-v8.1.0.bin
+aaae2888c5a6a348004b5b436f47abb25ae32e72d9003902955a998eda723edd  firmware/partitions.bin
+cf05d22bd0addb06aefcd3eb739c006005f0ca6ea8ffe07901b2ad0bd7d9a912  firmware/firmware.elf
