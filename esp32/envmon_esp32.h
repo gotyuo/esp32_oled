@@ -43,12 +43,12 @@
 // =============================================================================
 
 #define DEVICE_ID       "esp32-001"
-#define FIRMWARE_VERSION "8.1.0"
+#define FIRMWARE_VERSION "8.1.1"
 #define FIRMWARE_BUILD   "2026-10-06"
 
 // WiFi 凭据
 #define WIFI_SSID       "JDCwifi_6010"
-#define WIFI_PASSWORD   "gotyuo987"
+#define WIFI_PASSWORD   "321654987"
 
 // 平台服务器
 #define SERVER_HOST     "172.22.22.83"
@@ -57,6 +57,11 @@
 // 兼容旧代码引用
 #define MQTT_SERVER     SERVER_HOST
 #define MQTT_PORT       SERVER_PORT
+
+// 平台登录退避间隔 (毫秒)。
+// 登录失败后至少等这么久才重试。否则每 10s 上报一次 -> 每次都打
+// /api/login -> 服务端 429 限流, 缓存被填满后持续丢数据。
+#define LOGIN_BACKOFF_MS  60000UL
 
 // 鉴权 Token (留空, 由 platformLogin() 自动获取)
 #define AUTH_TOKEN      ""

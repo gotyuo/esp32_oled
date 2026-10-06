@@ -80,6 +80,16 @@ bool platformLogin() {
     return false;
   }
 
+  // 登录退避: 失败后至少等 LOGIN_BACKOFF_MS 才重试。
+  // 否则每 10s 上报一次 -> 每次都打 /api/login -> 服务端 429 限流,
+  // 缓存被填满后持续丢数据。
+  static uint32_t s_lastLoginMs = 0;
+  uint32_t now = millis();
+  if (s_lastLoginMs && (now - s_lastLoginMs) < LOGIN_BACKOFF_MS) {
+    return false;   // 静默: 未到重试间隔
+  }
+  s_lastLoginMs = now;
+
   StaticJsonDocument<192> doc;
   doc["username"] = LOGIN_USERNAME;
   doc["password"] = LOGIN_PASSWORD;
@@ -110,10 +120,19 @@ bool platformLogin() {
       }
     }
     ELOG("platformLogin: no token in response: %s", resp.c_str());
-  } else {
-    ELOG("platformLogin: failed (code=%d)", code);
-    http.end();
+    return false;
   }
+
+  // 失败时打印响应体: 平台返回的错误信息(如 {"detail":"..."})能直接说明
+  // 401 的原因, 不用连 SSH 查服务端日志。
+  // code 要区分开: -1 = 网络/超时(平台不可达), 401 = 凭证错, 429 = 限流。
+  String resp = http.getString();
+  const char* why = (code < 0) ? "network/timeout"
+                   : (code == 401) ? "credentials rejected"
+                   : (code == 429) ? "rate limited"
+                   : "other";
+  ELOG("platformLogin: failed (code=%d, %s, body=%s)", code, why, resp.c_str());
+  http.end();
   return false;
 }
 
@@ -128,11 +147,13 @@ static bool httpPost(const char* path, const String& payload, String* bodyOut) {
     return false;
   }
 
-  // 如果没有 token, 先登录
+  // 如果没有 token, 先登录。
+  // platformLogin() 内部带退避: 失败后 60s 内直接返回 false 而不打日志,
+  // 否则退避期间每 10s 上报一次都会刷一条 "login failed", 串口日志被刷屏,
+  // 反而看不清真正的故障码。
   if (g_runtimeToken.isEmpty()) {
     if (!platformLogin()) {
-      ELOG("httpPost: login failed, cannot proceed");
-      return false;
+      return false;   // 静默: 登录失败原因由 platformLogin() 自己打(带退避节流)
     }
   }
 
@@ -194,15 +215,16 @@ static bool httpPost(const char* path, const String& payload, String* bodyOut) {
   return ok;
 }
 
-static void cacheEnqueue(const SensorReading& r) {
+static void cacheEnqueue(const SensorReading& r, bool* droppedOldest) {
   size_t idx = (s_cacheHead + s_cacheCount) % CACHE_MAX;
   if (s_cacheCount < CACHE_MAX) {
     s_cache[idx] = { r, millis() };
     s_cacheCount++;
+    if (droppedOldest) *droppedOldest = false;
   } else {
     s_cache[idx] = { r, millis() };
     if (s_cacheCount == 0) s_cacheHead = 0;
-    ELOG("Cache full, dropped oldest");
+    if (droppedOldest) *droppedOldest = true;
   }
 }
 
@@ -272,10 +294,15 @@ bool platformReport(const SensorReading& r) {
   }
 
   if (!g_state.wifiConnected) {
-    cacheEnqueue(r);
-    ELOG("WiFi down, reading cached (%u total)", s_cacheCount);
+    bool droppedOldest = false;
+    cacheEnqueue(r, &droppedOldest);
     g_state.reportFailCount++;
     s_consecFailures++;
+    // 节流: WiFi 断开期间每 10s 上报一次, 只在第 1/10/20... 次打日志。
+    if (s_consecFailures == 1 || s_consecFailures % 10 == 0 || droppedOldest) {
+      ELOG("WiFi down, reading cached (%u total, %u consec fail)",
+           s_cacheCount, s_consecFailures);
+    }
     return false;
   }
 
@@ -294,11 +321,16 @@ bool platformReport(const SensorReading& r) {
     return true;
   }
 
-  cacheEnqueue(r);
+  bool droppedOldest = false;
+  cacheEnqueue(r, &droppedOldest);
   g_state.reportFailCount++;
   s_consecFailures++;
-  ELOG("Report failed, cached (%u total, %u consec fail)",
-       s_cacheCount, s_consecFailures);
+  // 日志节流: 第 1 次、第 10 次、以及缓存溢出时各打一条。
+  // 否则每 10s 上报失败一次, 一晚上能刷上千行, 淹没真正的故障码。
+  if (s_consecFailures == 1 || s_consecFailures % 10 == 0 || droppedOldest) {
+    ELOG("Report failed, cached (%u total, %u consec fail%s)",
+         s_cacheCount, s_consecFailures, droppedOldest ? ", cache overflow" : "");
+  }
   return false;
 }
 
