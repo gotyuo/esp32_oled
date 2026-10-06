@@ -101,14 +101,38 @@ static void audioTaskFunc(void*) {
   int16_t* buf[2] = { bufA, bufB };
   size_t written = 0;
 
+  // 包络: 0.0(静音)~1.0(满音量), 逐样本平滑过渡。
+  // 之前是整块硬切换 (满幅正弦 <-> 0), 在块边界产生阶梯不连续,
+  // 听感是刺耳的咔嗒/嘶声 ("破音")。这里改成渐变, 消除爆音。
+  float envelope = 0.0f;
+  // 渐变时间约 30ms = 30 * 16 = 480 样本, 每样本步进 1/480。
+  // 太短 (<10ms) 仍会有可闻的咔声; 太长 (>100ms) 报警响应会显得迟钝。
+  const float FADE_STEP = 1.0f / 480.0f;
+
   while (s_inited) {
     int16_t* out = buf[written % 2];
-    bool shouldTone = false;
-    if (s_alarmActive && s_alarmToneOn && !s_muted) shouldTone = true;
-    else if (s_testActive && !s_muted) shouldTone = true;
 
     for (size_t i = 0; i < 2048; i++) {
-      out[i] = shouldTone ? toneNextSample() : 0;
+      bool shouldTone = false;
+      if (s_alarmActive && s_alarmToneOn && !s_muted) shouldTone = true;
+      else if (s_testActive && !s_muted) shouldTone = true;
+
+      // 包络向目标平滑逼近
+      const float target = shouldTone ? 1.0f : 0.0f;
+      if (envelope < target) {
+        envelope += FADE_STEP;
+        if (envelope > target) envelope = target;
+      } else if (envelope > target) {
+        envelope -= FADE_STEP;
+        if (envelope < target) envelope = target;
+      }
+
+      if (envelope > 0.0f) {
+        int16_t sample = toneNextSample();
+        out[i] = (int16_t)((float)sample * envelope);
+      } else {
+        out[i] = 0;
+      }
     }
 
     size_t bytesW = 0;
