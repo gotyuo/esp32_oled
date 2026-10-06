@@ -325,9 +325,13 @@ bool platformReport(const SensorReading& r) {
   cacheEnqueue(r, &droppedOldest);
   g_state.reportFailCount++;
   s_consecFailures++;
-  // 日志节流: 第 1 次、第 10 次、以及缓存溢出时各打一条。
-  // 否则每 10s 上报失败一次, 一晚上能刷上千行, 淹没真正的故障码。
-  if (s_consecFailures == 1 || s_consecFailures % 10 == 0 || droppedOldest) {
+  // 日志节流: 第 1 次、第 10/20/30... 次打一条, 缓存刚满时打一条。
+  // 注意: droppedOldest 一旦缓存满就恒为 true, 不能直接 OR 进条件,
+  // 否则条件每次都成立, 等于没节流。这里只在"刚满"的边缘打一次。
+  static bool s_overflowLogged = false;
+  bool overflowEdge = droppedOldest && !s_overflowLogged;
+  s_overflowLogged = s_overflowLogged || droppedOldest;
+  if (s_consecFailures == 1 || s_consecFailures % 10 == 0 || overflowEdge) {
     ELOG("Report failed, cached (%u total, %u consec fail%s)",
          s_cacheCount, s_consecFailures, droppedOldest ? ", cache overflow" : "");
   }

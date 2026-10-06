@@ -43,7 +43,7 @@
 // =============================================================================
 
 #define DEVICE_ID       "esp32-001"
-#define FIRMWARE_VERSION "8.1.1"
+#define FIRMWARE_VERSION "8.1.2"
 #define FIRMWARE_BUILD   "2026-10-06"
 
 // WiFi 凭据
